@@ -8,14 +8,14 @@ st.title("🏢 Occupancy‑Driven HVAC Backtest (Constant Outdoor Temp)")
 
 @st.cache_data
 def load_data():
-    # Try to load CSV; if it fails, show a helpful error in logs
+    # Try to load CSV
     try:
         df = pd.read_csv('backtest_hvac_constant_temp.csv')
     except Exception as e:
         st.error(f"Could not read CSV: {e}")
         raise
 
-    # Check if we have a 'timestamp' column; if not, assume the first column is the index
+    # Convert timestamp to datetime and set as index
     if 'timestamp' in df.columns:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.set_index('timestamp')
@@ -25,27 +25,37 @@ def load_data():
         df[first_col] = pd.to_datetime(df[first_col])
         df = df.set_index(first_col)
 
-    # Ensure index is DatetimeIndex
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
-
-    # Sort index (just in case)
+    # Sort index
     df = df.sort_index()
 
-    # Remove any rows with missing datetime (if any)
-    df = df.dropna(subset=[df.index.name])
+    # REMOVED: df = df.dropna(subset=[df.index.name])
+    # (This was causing the KeyError)
 
-    # Compute cumulative energy if not already present
-    if 'energy_pred' not in df.columns:
-        if 'Q_hvac_pred' in df.columns:
-            df['energy_pred'] = df['Q_hvac_pred'].cumsum() / 3600e3
+    # Map standard names to the columns present in your CSV
+    # Mapping for easy access
+    df['occ_true'] = df['occupancy_actual']
+    df['occ_pred'] = df['occupancy_predicted']
+    
+    # Temperature: There is no separate predicted temperature in the CSV.
+    # We will use the actual room temperature for both, or you can replace
+    # with a simulated column if you add one later.
+    df['T_true'] = df['room_temperature_C']
+    df['T_pred'] = df['room_temperature_C']  # Assuming no pred, using actual
+    
+    # Energy: Use the cumulative energy column directly (Actual)
+    # If you have a predicted cumulative column, use that; otherwise, use the same.
+    if 'hvac_energy_cumulative_kWh' in df.columns:
+        df['energy_true'] = df['hvac_energy_cumulative_kWh']
+        # For now, use actual for predicted as well. If you have a separate pred column, map it here.
+        df['energy_pred'] = df['hvac_energy_cumulative_kWh']
+    else:
+        # Fallback: compute from interval if cumulative missing
+        if 'hvac_energy_interval_kWh' in df.columns:
+            df['energy_true'] = df['hvac_energy_interval_kWh'].cumsum()
+            df['energy_pred'] = df['hvac_energy_interval_kWh'].cumsum()
         else:
-            df['energy_pred'] = 0
-    if 'energy_true' not in df.columns:
-        if 'Q_hvac_true' in df.columns:
-            df['energy_true'] = df['Q_hvac_true'].cumsum() / 3600e3
-        else:
-            df['energy_true'] = 0
+            st.error("No energy columns found in CSV!")
+            st.stop()
 
     return df
 
@@ -67,12 +77,15 @@ else:
 # Metrics
 col1, col2, col3 = st.columns(3)
 with col1:
+    # Calculate RMSE between T_pred and T_true (they are the same now)
     rmse_temp = np.sqrt(np.mean((df_filtered['T_pred'] - df_filtered['T_true'])**2))
     st.metric("Temperature RMSE", f"{rmse_temp:.2f} °C")
 with col2:
+    # Energy difference: Since we are using actual for both, this will be 0. Change if you have a true pred column.
     energy_diff = df_filtered['energy_pred'].iloc[-1] - df_filtered['energy_true'].iloc[-1]
     st.metric("Energy Difference (Pred - True)", f"{energy_diff:.2f} kWh")
 with col3:
+    # Comfort violation for T_true (since T_pred is the same)
     comfort_true = ((df_filtered['T_true'] < 20) | (df_filtered['T_true'] > 26)).mean()
     comfort_pred = ((df_filtered['T_pred'] < 20) | (df_filtered['T_pred'] > 26)).mean()
     st.metric("Comfort Violation (True)", f"{comfort_true*100:.1f}%")

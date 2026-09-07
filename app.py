@@ -10,7 +10,7 @@ st.title("🏢 Occupancy-Driven HVAC Backtesting")
 # Load results
 @st.cache_data
 def load_data():
-    df = pd.read_csv('backtest_results.csv', parse_dates=['timestamp'], index_col='timestamp')
+    df = pd.read_csv('backtest_hvac_constant_temp.csv', parse_dates=['timestamp'], index_col='timestamp')
     # Compute cumulative energy (kWh)
     df['energy_pred'] = df['Q_hvac_pred'].cumsum() / 3600e3
     df['energy_true'] = df['Q_hvac_true'].cumsum() / 3600e3

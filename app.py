@@ -1,19 +1,52 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import numpy as np
 
-st.set_page_config(page_title="HVAC Backtest Dashboard", layout="wide")
-st.title("🏢 Occupancy-Driven HVAC Backtesting")
+st.set_page_config(layout="wide")
+st.title("🏢 Occupancy‑Driven HVAC Backtest (Constant Outdoor Temp)")
 
-# Load results
 @st.cache_data
 def load_data():
-    df = pd.read_csv('backtest_hvac_constant_temp.csv', parse_dates=['timestamp'], index_col='timestamp')
-    # Compute cumulative energy (kWh)
-    df['energy_pred'] = df['Q_hvac_pred'].cumsum() / 3600e3
-    df['energy_true'] = df['Q_hvac_true'].cumsum() / 3600e3
+    # Try to load CSV; if it fails, show a helpful error in logs
+    try:
+        df = pd.read_csv('backtest_hvac_constant_temp.csv')
+    except Exception as e:
+        st.error(f"Could not read CSV: {e}")
+        raise
+
+    # Check if we have a 'timestamp' column; if not, assume the first column is the index
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.set_index('timestamp')
+    else:
+        # Use first column as index
+        first_col = df.columns[0]
+        df[first_col] = pd.to_datetime(df[first_col])
+        df = df.set_index(first_col)
+
+    # Ensure index is DatetimeIndex
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    # Sort index (just in case)
+    df = df.sort_index()
+
+    # Remove any rows with missing datetime (if any)
+    df = df.dropna(subset=[df.index.name])
+
+    # Compute cumulative energy if not already present
+    if 'energy_pred' not in df.columns:
+        if 'Q_hvac_pred' in df.columns:
+            df['energy_pred'] = df['Q_hvac_pred'].cumsum() / 3600e3
+        else:
+            df['energy_pred'] = 0
+    if 'energy_true' not in df.columns:
+        if 'Q_hvac_true' in df.columns:
+            df['energy_true'] = df['Q_hvac_true'].cumsum() / 3600e3
+        else:
+            df['energy_true'] = 0
+
     return df
 
 df = load_data()
